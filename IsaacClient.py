@@ -5,34 +5,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtWebSockets import *
 from PyQt5.QtNetwork import *
 
-# Server Command Quick Reference
-# 
-# Outgoing
-# 	roomJoin {"name":"fartchannel"}
-# 	roomMessage {"to":"global","msg":"i poopd"}
-# 	privateMessage {"to":"zamiel","msg":"private message lol"} 
-# 	raceCreate {}
-# 	raceJoin {"number":5}
-# 	raceLeave {"number":5}
-# 	raceReady {"number":5}
-# 	raceUnready {"number":5}
-# 	logout {}
-# 
-# Incoming
-#	SuccessMessage {"type", "msg"}
-#	ErrorMessage {"type", "msg"}
-#	RoomMessage (roomJoin, roomLeave) {"name"}
-#	ChatMessage {"to", "from", "msg"}
-#	RoomList {"room", "users"}
-#	User {"name", "admin"}
-#	RaceList {"races"}
-#	Race {"id", "status", "ruleset", "datetime_created", "datetime_started", "created_by"}
-#	RaceMessage {"number"}
-#	RaceParticipantList {"race_id", "racers"}
-#	Racer {"name", "status", "admin"}
-#
-
-
 # Contains all the network connection data
 class Connection():
 
@@ -141,6 +113,7 @@ class Connection():
 		print("Disconnected")
 		self.connection.close()
 		mainWindow.setCentralWidget(LoginScreen())
+
  
 	# Called on a connection error
 	def error(self):
@@ -279,6 +252,10 @@ class LoginScreen(QWidget):
 
 		self.setLayout(self.loginForm)
 
+		# Testing Shit
+		# net.login("Chronometrics", "test")
+		# net.connection.connected.connect(self.loginComplete)
+
 	def login(self):
 		net.connection.connected.connect(self.loginComplete)
 		net.login(self.usernameField.text(), self.passwordField.text())
@@ -287,7 +264,6 @@ class LoginScreen(QWidget):
 		net.register(self.rusernameField.text(), self.rpasswordField.text(), self.remailField.text())
 
 	def loginComplete(self):
-		print ("aaaa")
 		server.roomJoin("global")
 		mainWindow.setCentralWidget(Lobby())
 
@@ -300,6 +276,61 @@ class Lobby(QWidget):
 	def __init__(self):
 		QWidget.__init__(self)
 
+		self.tabs = QTabWidget()
+
+		self.tabs.setTabShape(QTabWidget.Triangular)
+		self.tabs.setTabsClosable(True)
+		self.tabs.setMovable(True)
+
+		self.tabs.addTab(RoomTab("global"), "global")
+
+		logout = QPushButton("Logout")
+		joinRoom = QPushButton("Join Room")
+		newRace = QPushButton("New Race")
+
+		logout.released.connect(self.logout)
+		joinRoom.released.connect(self.joinRoom)
+		newRace.released.connect(self.newRace)
+
+		buttons = QHBoxLayout()
+		buttons.addWidget(newRace)
+		buttons.addWidget(joinRoom)
+		buttons.addWidget(logout)
+
+		layout = QVBoxLayout()
+		layout.addWidget(self.tabs)
+		layout.addLayout(buttons)
+
+		self.setLayout(layout)
+
+	def logout(self):
+		server.logout()
+		mainWindow.setCentralWidget(LoginScreen())
+
+	def newRace(self):
+		dialog = QInputDialog()
+		raceName, completed = dialog.getText(self, "New Race", "Choose a name for your race.")
+
+		if completed:
+			server.raceCreate()
+			self.tabs.addTab(RoomTab(raceName), raceName)
+
+	def joinRoom(self):
+		dialog = QInputDialog()
+		roomName, completed = dialog.getText(self, "Join Room", "Enter the name of the room to join.")
+
+		if completed:
+			server.roomJoin(roomName)
+			self.tabs.addTab(RoomTab(roomName), roomName)
+
+
+# A Room or Race tab
+class RoomTab(QWidget):
+
+	def __init__(self, name):
+		QWidget.__init__(self)
+		self.name = name
+
 		# Widget Setup
 		self.raceList = QListWidget()
 		self.chat = QListWidget()
@@ -308,9 +339,6 @@ class Lobby(QWidget):
 
 		self.chatEntry.returnPressed.connect(self.sendMessage)
 
-		logoutButton = QPushButton("Logout")
-		logoutButton.released.connect(self.logout)
-
 		# Layouts Setup
 		chatLayout = QVBoxLayout()
 		chatLayout.addWidget(self.chat)
@@ -318,7 +346,6 @@ class Lobby(QWidget):
 
 		userLayout = QVBoxLayout()
 		userLayout.addWidget(self.userList)
-		userLayout.addWidget(logoutButton)
 		userLayout.setSpacing(0)
 
 		bottomLayout = QGridLayout()
@@ -335,14 +362,11 @@ class Lobby(QWidget):
 		# Server Signal setup
 		server.RoomList.connect(self.updateUserlist)
 		server.RaceList.connect(self.updateRacelist)
-		server.Success.connect(self.updateRoomTabs)
 		server.RoomMessage.connect(self.updateChat)
 
-	def logout(self):
-		server.logout()
-		mainWindow.setCentralWidget(LoginScreen())
-
 	def updateUserlist(self, room, users):
+		if room != self.name: return
+
 		self.userList.clear()
 
 		for user in users:
@@ -358,14 +382,13 @@ class Lobby(QWidget):
 
 		self.raceList.sortItems()
 
-	def updateRoomTabs(self, type, msg):
-		pass
-
 	def updateChat(self, to, afrom, msg):
+		if to != self.name: return
+
 		self.chat.addItem("{0}: {1}".format(afrom, msg))
 
 	def sendMessage(self):
-		server.roomMessage("global", self.chatEntry.text())
+		server.roomMessage(self.name, self.chatEntry.text())
 		self.chatEntry.clear()
 
 # Represents the Game ruleset and pregame area
@@ -513,6 +536,7 @@ class MainWindow(QMainWindow):
 	def quit(self):
 		server.logout()
 		app.quit()
+
 
 if __name__ == '__main__':
 
