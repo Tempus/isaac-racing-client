@@ -83,38 +83,41 @@ class Connection():
 		self.httpWait = self.loginCallback
 
 		# Generate the body data
-		body = QByteArray()
-		body.append("grant_type=password&username={0}&password={1}&client_id={2}&connection=Username-Password-Authentication".format(username, password, self.CLIENT))
+		body = QByteArray().append("grant_type=password&username={0}&password={1}&client_id={2}&connection=Username-Password-Authentication".format(username, password, self.CLIENT))
 
+		# Make the request to the URL with the appropriate header
 		request = QNetworkRequest(QUrl(self.AUTH_LOGIN))
 		request.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/x-www-form-urlencoded"))
 
+		# Up up and away
 		reply = self.http.post(request, body)
 
 	# The login callback following the auth
 	def loginCallback(self, httpReply):
 
-		replyData = str(httpReply.read(10000000), 'utf-8')
-		print (replyData)
-
-		request = QHttpMultiPart()
-
-		body = QByteArray()
-		body.append(replyData)
-
-		part = QHttpPart()
-		part.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/json"))
-		part.setBody(body)
-
-		request.append(part)
-
+		# Set where the next step in the chain leads
 		self.httpWait = self.loginSuccessConnect
-		reply = self.http.post(QNetworkRequest(QUrl(self.HOST_LOGIN)), request)
-		request.setParent(reply)
+
+		# Generate the body data
+		replyData = str(httpReply.read(10000000), 'utf-8')
+		body = QByteArray().append(replyData)
+
+		# Make the request to the URL with the appropriate header
+		request = QNetworkRequest(QUrl(self.HOST_LOGIN))
+		request.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/json"))
+
+		# Send the request
+		reply = self.http.post(request, QByteArray().append(replyData))
 
 	# Occurs on login success
 	def loginSuccessConnect(self, httpReply):
-		self.connection.open(self.HOST)
+		request = QNetworkRequest(QUrl(self.HOST))
+		# request.setRawHeader(QByteArray(), httpReply.rawHeader(httpReply.rawHeaderList()[0]))
+
+		cookie = httpReply.header(QNetworkRequest.SetCookieHeader)
+		request.setHeader(QNetworkRequest.SetCookieHeader, cookie)
+
+		self.connection.open(request)
 
 	# Writes data to the server connection
 	def sendData(self, msg):
