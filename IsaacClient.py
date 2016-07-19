@@ -55,13 +55,6 @@ class Connection():
 		self.http = QNetworkAccessManager()
 		self.http.finished.connect(self.reply)
 		self.httpWait = None
-
-		# QNetworkReply()
-		# parse cookie
-		# QNetworkCookie()
-
-		self.cookie = QNetworkCookie()
-
 	
 	# Waits for network reply
 	def reply(self, httpReply):
@@ -99,23 +92,21 @@ class Connection():
 		self.httpWait = self.loginSuccessConnect
 
 		# Generate the body data
-		replyData = str(httpReply.read(10000000), 'utf-8')
-		body = QByteArray().append(replyData)
+		body = QByteArray().append(str(httpReply.read(10000000), 'utf-8'))
 
 		# Make the request to the URL with the appropriate header
 		request = QNetworkRequest(QUrl(self.HOST_LOGIN))
 		request.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/json"))
 
 		# Send the request
-		reply = self.http.post(request, QByteArray().append(replyData))
+		reply = self.http.post(request, body)
 
 	# Occurs on login success
 	def loginSuccessConnect(self, httpReply):
 		request = QNetworkRequest(QUrl(self.HOST))
-		# request.setRawHeader(QByteArray(), httpReply.rawHeader(httpReply.rawHeaderList()[0]))
 
 		cookie = httpReply.header(QNetworkRequest.SetCookieHeader)
-		request.setHeader(QNetworkRequest.SetCookieHeader, cookie)
+		request.setHeader(QNetworkRequest.CookieHeader, cookie[0])
 
 		self.connection.open(request)
 
@@ -135,6 +126,93 @@ class Connection():
 	def error(self):
 		print(self.connection.errorString())
 
+
+class ServerConnection():
+
+	# Singals for all the messages we expect to receive
+	SuccessMessage = 		pyqtSignal(str, str) # {"type", "msg"}
+	ErrorMessage = 			pyqtSignal(str, str) # {"type", "msg"}
+	RoomMessage = 			pyqtSignal(str) # {"name"}
+	ChatMessage = 			pyqtSignal(str, str) # {"to", "from", "msg"}
+	RoomList = 				pyqtSignal(str, str) # {"room", "users"}
+	User = 					pyqtSignal(str, str) # {"name", "admin"}
+	RaceList = 				pyqtSignal(str) # {"races"}
+	Race = 					pyqtSignal(str, str, str, str, str, str) # {"id", "status", "ruleset", "datetime_created", "datetime_started", "created_by"}
+	RaceMessage = 			pyqtSignal(str) # {"number"}
+	RaceParticipantList = 	pyqtSignal(str, str) # {"race_id", "racers"}
+	Racer = 				pyqtSignal(str, str, str) # {"name", "status", "admin"}
+
+	def __init__(self):
+		self.connected = False
+		net.connection.textMessageReceived.connect(self.parseMessage)
+
+	def roomJoin(self, name):
+		net.sendData('roomJoin {{"name":"{0}"}}'.format(name))
+
+	def roomMessage(self, to, msg):
+		net.sendData('roomMesssage {{"to":"{0}", "msg":"{1}"}}'.format(to, msg))
+
+	def privateMessage(self, to, msg):
+		net.sendData('privateMessage {{"to":"{0}", "msg":"{1}"}}'.format(to, msg))
+
+	def raceCreate(self):
+		net.sendData('raceCreate {}')
+
+	def raceJoin(self, number):
+		net.sendData('roomJoin {{"number":"{0}"}}'.format(number))
+
+	def raceLeave(self, number):
+		net.sendData('raceLeave {{"number":"{0}"}}'.format(number))
+
+	def raceReady(self, number):
+		net.sendData('raceReady {{"number":"{0}"}}'.format(number))
+
+	def raceUnready(self, number):
+		net.sendData('raceUnready {{"number":"{0}"}}'.format(number))
+
+	def logout(self):	
+		net.sendData('logout {}')
+
+	def parseMessage(self, message):
+		try:
+			command = message.split(" ", 1)
+			body = json.loads(command[1])
+
+			if command[0] is "SuccessMessage":
+				self.SuccessMessage.emit(body["type"], body["msg"])
+
+			elif command[0] is "ErrorMessage":
+				self.SuccessMessage.emit(body["type"], body["msg"])
+
+			elif command[0] is "RoomMessage":
+				self.SuccessMessage.emit(body["name"])
+
+			elif command[0] is "ChatMessage":
+				self.SuccessMessage.emit(body["to"], body["from"], body["msg"])
+
+			elif command[0] is "RoomList":
+				self.SuccessMessage.emit(body["room"], body["users"])
+
+			elif command[0] is "User":
+				self.SuccessMessage.emit(body["name"], body["status"], body["admin"])
+
+			elif command[0] is "RaceList":
+				self.SuccessMessage.emit(body["races"])
+
+			elif command[0] is "Race":
+				self.SuccessMessage.emit(body["id"], body["status"], body["ruleset"], body["datetime_created"], body["datetime_started"], body["created_by"])
+
+			elif command[0] is "RaceMessage":
+				self.SuccessMessage.emit(body["type"], body["msg"])
+
+			elif command[0] is "RaceParticipantList":
+				self.SuccessMessage.emit(body["race_id", "racers"])
+
+			else:
+				print ("Unknown Command: '{0}'".format(message))
+
+		except:
+			print ("Bad Command format: '{0}'".format(message))
 
 # Represents the Screen players login
 class LoginScreen(QWidget):
@@ -160,10 +238,14 @@ class LoginScreen(QWidget):
 
 		self.setLayout(self.loginForm)
 
+	def login(self):
+		net.connection.connected.connect(self.loginComplete)
 		net.login("zamiel", "asdf")
 
-	def login(self):
+	def loginComplete(self):
+		
 		mainWindow.setCentralWidget(Lobby())
+
 
 # Represents the Lobby to join ongoing races
 class Lobby(QWidget):
@@ -252,7 +334,6 @@ class StagingArea(QWidget):
 			self.readyButton.setText("Ready")
 			self.startButton.setEnabled(False)
 
-
 	def startRace(self):
 		mainWindow.setCentralWidget(IsaacScene())
 
@@ -296,7 +377,6 @@ class IsaacScene(QGraphicsView):
 
 		# Recieving messages
 		net.connection.textMessageReceived.connect(self.gotMessage)
-
 
 	# Send a new floor message
 	def newFloor(self):
@@ -353,6 +433,7 @@ if __name__ == '__main__':
 	# app.setWindowIcon(QIcon('Icon.png'))
 
 	net = Connection()
+	server = ServerConnection()
 	mainWindow = MainWindow()
 	mainWindow.show()
 
