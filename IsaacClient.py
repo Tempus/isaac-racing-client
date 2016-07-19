@@ -66,12 +66,28 @@ class Connection():
 			print ("Error: {0}".format(httpReply.error()))
 
 	# Authorization
-	def register(self, username, password):
-		# // curl https://isaacserver.auth0.com/dbconnections/signup -H "Content-Type: application/json" --data '{"client_id":"tqY8tYlobY4hc16ph5B61dpMJ1YzDaAR","email":"zamiel@zamiel3.com","username":"zamiel","password":"asdf","connection":"Username-Password-Authentication"}' --verbose
-		pass
+	def register(self, username, password, email):
+		self.httpWait = self.login
+		self.username = username
+		self.password = password
+
+		# Generate the body data
+		body = QByteArray().append('{{"client_id":"{0}","email":"{3}","username":"{1}","password":"{2}","connection":"Username-Password-Authentication"}}'.format(self.CLIENT, username, password, email))
+ 
+		# Make the request to the URL with the appropriate header
+		request = QNetworkRequest(QUrl(self.REGISTER))
+		request.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/json"))
+
+		# Send in the registration
+		self.http.post(request, body)
 
 	# Begins the login sequence with the authorization
-	def login(self, username, password):
+	def login(self, username = None, password = None):
+		if username == None:
+			username = self.username
+		if password == None:
+			password = self.password
+
 		# Set where the next step in the chain leads
 		self.httpWait = self.loginCallback
 
@@ -83,7 +99,7 @@ class Connection():
 		request.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/x-www-form-urlencoded"))
 
 		# Up up and away
-		reply = self.http.post(request, body)
+		self.http.post(request, body)
 
 	# The login callback following the auth
 	def loginCallback(self, httpReply):
@@ -99,7 +115,7 @@ class Connection():
 		request.setHeader(QNetworkRequest.ContentTypeHeader, QVariant("application/json"))
 
 		# Send the request
-		reply = self.http.post(request, body)
+		self.http.post(request, body)
 
 	# Occurs on login success
 	def loginSuccessConnect(self, httpReply):
@@ -115,42 +131,46 @@ class Connection():
 		self.connection.sendTextMessage(msg)
 		print("Send Msg: {}".format(msg))
 
+	# Occurs on successful connection
 	def connected(self):
 		print("Connected")
+		return
 
 	# Fallback if the server dies
 	def disconnected(self):
 		print("Disconnected")
 		self.connection.close()
+		mainWindow.setCentralWidget(LoginScreen())
  
+	# Called on a connection error
 	def error(self):
 		print(self.connection.errorString())
+		return
 
 
-class ServerConnection():
+class ServerConnection(QObject):
 
 	# Singals for all the messages we expect to receive
-	SuccessMessage = 		pyqtSignal(str, str) # {"type", "msg"}
-	ErrorMessage = 			pyqtSignal(str, str) # {"type", "msg"}
-	RoomMessage = 			pyqtSignal(str) # {"name"}
-	ChatMessage = 			pyqtSignal(str, str) # {"to", "from", "msg"}
-	RoomList = 				pyqtSignal(str, str) # {"room", "users"}
-	User = 					pyqtSignal(str, str) # {"name", "admin"}
-	RaceList = 				pyqtSignal(str) # {"races"}
-	Race = 					pyqtSignal(str, str, str, str, str, str) # {"id", "status", "ruleset", "datetime_created", "datetime_started", "created_by"}
-	RaceMessage = 			pyqtSignal(str) # {"number"}
-	RaceParticipantList = 	pyqtSignal(str, str) # {"race_id", "racers"}
-	Racer = 				pyqtSignal(str, str, str) # {"name", "status", "admin"}
+	RoomList 	= pyqtSignal(str, list) 	# {"room", "users"}
+	RaceList 	= pyqtSignal(list) 			# {"races"}
+	Success 	= pyqtSignal(str, str)		# {"type", "msg"}
+	RoomMessage = pyqtSignal(str, str, str)	# {"to", "from", msg"}
 
 	def __init__(self):
+		QObject.__init__(self)
+
 		self.connected = False
 		net.connection.textMessageReceived.connect(self.parseMessage)
+
+	####################
+	# Outgoing Commands
+	####################
 
 	def roomJoin(self, name):
 		net.sendData('roomJoin {{"name":"{0}"}}'.format(name))
 
 	def roomMessage(self, to, msg):
-		net.sendData('roomMesssage {{"to":"{0}", "msg":"{1}"}}'.format(to, msg))
+		net.sendData('roomMessage {{"to":"{0}", "msg":"{1}"}}'.format(to, msg))
 
 	def privateMessage(self, to, msg):
 		net.sendData('privateMessage {{"to":"{0}", "msg":"{1}"}}'.format(to, msg))
@@ -158,61 +178,65 @@ class ServerConnection():
 	def raceCreate(self):
 		net.sendData('raceCreate {}')
 
-	def raceJoin(self, number):
-		net.sendData('roomJoin {{"number":"{0}"}}'.format(number))
+	def raceJoin(self, id):
+		net.sendData('roomJoin {{"id":"{0}"}}'.format(id))
 
-	def raceLeave(self, number):
-		net.sendData('raceLeave {{"number":"{0}"}}'.format(number))
+	def raceLeave(self, id):
+		net.sendData('raceLeave {{"id":"{0}"}}'.format(id))
 
-	def raceReady(self, number):
-		net.sendData('raceReady {{"number":"{0}"}}'.format(number))
+	def raceReady(self, id):
+		net.sendData('raceReady {{"id":"{0}"}}'.format(id))
 
-	def raceUnready(self, number):
-		net.sendData('raceUnready {{"number":"{0}"}}'.format(number))
+	def raceUnready(self, id):
+		net.sendData('raceUnready {{"id":"{0}"}}'.format(id))
 
-	def logout(self):	
+	def raceDone(self, id):
+		net.sendData('raceDone {{"id":"{0}"}}'.format(id))
+
+	def raceQuit(self, id):
+		net.sendData('raceQuit {{"id":"{0}"}}'.format(id))
+
+	def raceFloor(self, floor, id):
+		net.sendData('raceFloor {{"id":"{0}", "floor":"{0}"}}'.format(id, floor))
+
+	def logout(self):
 		net.sendData('logout {}')
+
+	def banUser(self, username):
+		net.sendData('adminBan {{"name":"{0}"}}'.format(username))
+
+	def squelchUser(self, username):
+		net.sendData('adminSquelch {{"name":"{0}"}}'.format(username))
+
+	####################
+	# Incoming Commands
+	####################
 
 	def parseMessage(self, message):
 		try:
 			command = message.split(" ", 1)
 			body = json.loads(command[1])
 
-			if command[0] is "SuccessMessage":
-				self.SuccessMessage.emit(body["type"], body["msg"])
+			if command[0] == "roomList":
+				self.RoomList.emit(body["room"], body["users"])
 
-			elif command[0] is "ErrorMessage":
-				self.SuccessMessage.emit(body["type"], body["msg"])
+			elif command[0] == "raceList":
+				self.RaceList.emit(body["races"])
 
-			elif command[0] is "RoomMessage":
-				self.SuccessMessage.emit(body["name"])
+			elif command[0] == "success":
+				self.Success.emit(body["type"], body["msg"])
 
-			elif command[0] is "ChatMessage":
-				self.SuccessMessage.emit(body["to"], body["from"], body["msg"])
-
-			elif command[0] is "RoomList":
-				self.SuccessMessage.emit(body["room"], body["users"])
-
-			elif command[0] is "User":
-				self.SuccessMessage.emit(body["name"], body["status"], body["admin"])
-
-			elif command[0] is "RaceList":
-				self.SuccessMessage.emit(body["races"])
-
-			elif command[0] is "Race":
-				self.SuccessMessage.emit(body["id"], body["status"], body["ruleset"], body["datetime_created"], body["datetime_started"], body["created_by"])
-
-			elif command[0] is "RaceMessage":
-				self.SuccessMessage.emit(body["type"], body["msg"])
-
-			elif command[0] is "RaceParticipantList":
-				self.SuccessMessage.emit(body["race_id", "racers"])
+			elif command[0] == "roomMessage":
+				self.RoomMessage.emit(body["to"], body["from"], body["msg"])
 
 			else:
 				print ("Unknown Command: '{0}'".format(message))
 
+			print ("Recv Msg: {0}".format(message))
+
 		except:
-			print ("Bad Command format: '{0}'".format(message))
+		 	print ("Bad Command format: '{0}'".format(message))
+
 
 # Represents the Screen players login
 class LoginScreen(QWidget):
@@ -221,31 +245,54 @@ class LoginScreen(QWidget):
 		QWidget.__init__(self)
 
 		# Widgets
-		usernameField = QLineEdit()
-		passwordField = QLineEdit()
+		self.usernameField = QLineEdit()
+		self.passwordField = QLineEdit()
+
+		self.rusernameField = QLineEdit()
+		self.rpasswordField = QLineEdit()
+		self.remailField = QLineEdit()
 
 		submit = QPushButton("Submit")
-		cancel = QPushButton("Cancel")
+		cancel = QPushButton("Quit")
+		register = QPushButton("Register")
 
 		submit.released.connect(self.login)
-		cancel.released.connect(quit)
+		cancel.released.connect(self.quit)
+		register.released.connect(self.register)
 
 		# Layout
 		self.loginForm = QFormLayout()
-		self.loginForm.addRow("Username", usernameField)
-		self.loginForm.addRow("Password", passwordField)
-		self.loginForm.addRow(submit, cancel)
+		self.loginForm.addRow(QLabel(""), QLabel("Login"))
+		self.loginForm.addRow("Username", self.usernameField)
+		self.loginForm.addRow("Password", self.passwordField)
+		self.loginForm.addRow(QLabel(""), submit)
+		self.loginForm.addRow(QLabel(""), QLabel(""))
+
+		self.loginForm.addRow(QLabel(""), QLabel("Register"))
+		self.loginForm.addRow("Username", self.rusernameField)
+		self.loginForm.addRow("Password", self.rpasswordField)
+		self.loginForm.addRow("Email", self.remailField)
+		self.loginForm.addRow(QLabel(""), register)
+		self.loginForm.addRow(QLabel(""), QLabel(""))
+
+		self.loginForm.addRow(QLabel(""), cancel)
 
 		self.setLayout(self.loginForm)
 
 	def login(self):
 		net.connection.connected.connect(self.loginComplete)
-		net.login("zamiel", "asdf")
+		net.login(self.usernameField.text(), self.passwordField.text())
+
+	def register(self):
+		net.register(self.rusernameField.text(), self.rpasswordField.text(), self.remailField.text())
 
 	def loginComplete(self):
-		
+		print ("aaaa")
+		server.roomJoin("global")
 		mainWindow.setCentralWidget(Lobby())
 
+	def quit(self):
+		mainWindow.quit()
 
 # Represents the Lobby to join ongoing races
 class Lobby(QWidget):
@@ -254,21 +301,23 @@ class Lobby(QWidget):
 		QWidget.__init__(self)
 
 		# Widget Setup
-		raceList = QListWidget()
-		chat = QListWidget()
-		chatEntry = QLineEdit()
-		userList = QListWidget()
+		self.raceList = QListWidget()
+		self.chat = QListWidget()
+		self.chatEntry = QLineEdit()
+		self.userList = QListWidget()
+
+		self.chatEntry.returnPressed.connect(self.sendMessage)
 
 		logoutButton = QPushButton("Logout")
 		logoutButton.released.connect(self.logout)
 
 		# Layouts Setup
 		chatLayout = QVBoxLayout()
-		chatLayout.addWidget(chat)
-		chatLayout.addWidget(chatEntry)
+		chatLayout.addWidget(self.chat)
+		chatLayout.addWidget(self.chatEntry)
 
 		userLayout = QVBoxLayout()
-		userLayout.addWidget(userList)
+		userLayout.addWidget(self.userList)
 		userLayout.addWidget(logoutButton)
 		userLayout.setSpacing(0)
 
@@ -278,14 +327,46 @@ class Lobby(QWidget):
 		bottomLayout.setColumnStretch(0, 1)
 
 		layout = QVBoxLayout()
-		layout.addWidget(raceList)
+		layout.addWidget(self.raceList)
 		layout.addLayout(bottomLayout)
 
 		self.setLayout(layout)
 
+		# Server Signal setup
+		server.RoomList.connect(self.updateUserlist)
+		server.RaceList.connect(self.updateRacelist)
+		server.Success.connect(self.updateRoomTabs)
+		server.RoomMessage.connect(self.updateChat)
+
 	def logout(self):
+		server.logout()
 		mainWindow.setCentralWidget(LoginScreen())
 
+	def updateUserlist(self, room, users):
+		self.userList.clear()
+
+		for user in users:
+			self.userList.addItem(user["name"])
+
+		self.userList.sortItems()
+
+	def updateRacelist(self, races):
+		self.raceList.clear()
+
+		for race in races:
+			self.raceList.addItem("Race {0}".format(race["id"]))
+
+		self.raceList.sortItems()
+
+	def updateRoomTabs(self, type, msg):
+		pass
+
+	def updateChat(self, to, afrom, msg):
+		self.chat.addItem("{0}: {1}".format(afrom, msg))
+
+	def sendMessage(self):
+		server.roomMessage("global", self.chatEntry.text())
+		self.chatEntry.clear()
 
 # Represents the Game ruleset and pregame area
 class StagingArea(QWidget):
@@ -425,6 +506,13 @@ class MainWindow(QMainWindow):
 
 		self.setCentralWidget(LoginScreen())
 
+	# Quit the application cleanly
+	def closeEvent(self, event):
+		self.quit()
+
+	def quit(self):
+		server.logout()
+		app.quit()
 
 if __name__ == '__main__':
 
