@@ -349,8 +349,16 @@ class Lobby(QWidget):
 			server.raceCreate(raceName)
 
 	def raceCallback(self, msgtype, msg):
-		if msgtype == "raceJoin" or msgtype == "raceCreate":
-			self.tabs.addTab(RaceTab(msg["name"], self.tabs, msg["id"]), msg["name"])
+		if msgtype == "raceJoin":
+			tabWidget = RaceTab(msg["name"], self.tabs, msg["id"])
+
+			self.tabs.addTab(tabWidget, msg["name"])
+
+		elif msgtype == "raceCreate":
+			icon = QIcon("resources/flag-checker.png")
+			tabWidget = RaceTab(msg["name"], self.tabs, msg["id"])
+
+			self.tabs.addTab(tabWidget, icon, msg["name"])
 
 	def joinRoom(self):
 		dialog = QInputDialog()
@@ -413,7 +421,14 @@ class RoomTab(QWidget):
 		self.userList.clear()
 
 		for user in users:
-			self.userList.addItem(user["name"])
+			icon = QIcon()
+			if user["admin"] == 1:
+				icon = QIcon("resources/cheese.png")
+			elif user["squelched"] == 1:
+				icon = QIcon("resources/poop.png")
+
+			item = QListWidgetItem(icon, user["name"])
+			self.userList.addItem(item)
 
 		self.userList.sortItems()
 
@@ -498,6 +513,7 @@ class RaceTab(QWidget):
 		self.userList.clear()
 
 		for user in users:
+
 			self.userList.addItem(user["name"])
 
 		self.userList.sortItems()
@@ -513,41 +529,77 @@ class RaceTab(QWidget):
 
 
 # Represents the Isaac Game
-class IsaacScene(QGraphicsView):
+class IsaacScene(QWidget):
 
-	def __init__(self):
-		QGraphicsView.__init__(self, QGraphicsScene())
-
-		# Basic Setup
-		s = self.scene()
-		self.setSceneRect(0,0,800,450)
-		s.setBackgroundBrush(QColor(0, 100, 255, 20))
+	def __init__(self, racers, darkRoom = False):
+		QWidget.__init__(self)
 
 		# Timer
 		self.startTime = QDateTime.currentDateTime()
-		self.timerText = s.addText("00:00:00:00")
-		self.timerText.setPos(352,12)
 		self.startTimer(0)
+		self.timerText = QLabel("00:00:00:000")
+
+		self.timerText.setAlignment(Qt.AlignHCenter)
+		self.timerText.setFrameStyle(QFrame.StyledPanel | QFrame.Sunken);
+		font = self.timerText.font()
+		font.setPixelSize(48)
+		self.timerText.setFont(font)
 
 		# Messsages to send
 
 		# Floor messages
 		floorButton = QPushButton("Next Floor")
 		floorButton.released.connect(self.newFloor)
-		w = s.addWidget(floorButton)
 
 		self.floors = ["B1", "B2", "C1", "C2", "D1", "D2", "W1", "W2", "Cath", "Chest"]
+
+		if darkRoom:
+			self.floors = ["B1", "B2", "C1", "C2", "D1", "D2", "W1", "W2", "Sheol", "Dark"]
+
 		self.floorIndex = 0
 
 		# Item messages
 		itemButton = QPushButton("Get Random Item")
 		itemButton.released.connect(self.newItem)
-		w = s.addWidget(itemButton)
-		w.setY(24)
-
 
 		# Recieving messages
-		net.connection.textMessageReceived.connect(self.gotMessage)
+		# server.
+
+		# Setup the List
+		self.setupRacerList(racers)
+
+		# Layout
+		layout = QVBoxLayout()
+		layout.addWidget(self.timerText)
+		layout.addWidget(self.racerList)
+
+		self.setLayout(layout)
+
+	# Setup the list of racers
+	def setupRacerList(self, racers):
+		self.racerList = QTreeWidget()
+
+		self.racerList.setColumnCount(4) # Icon, Name, Floor, Time Offset, Items
+		self.racerList.setHeaderLabels(["Name", "Status", "Offset", "Items"])
+		self.racerList.setIconSize(QSize(36, 36))
+
+		self.racerList.setColumnWidth(0, 160)
+		self.racerList.setIndentation(0)
+
+		for racer in racers:
+			item = QTreeWidgetItem([racer, self.floors[self.floorIndex], "±00:00:000", ""])
+
+			# Set the Racer Icon and the Item Icons (???)
+			item.setIcon(0, QIcon("resources/racer.png"))
+			item.setIcon(3, QIcon("resources/items/105.png"))
+
+			item.setTextAlignment(1, Qt.AlignHCenter)
+			font = item.font(1)
+			font.setBold(True)
+			font.setPixelSize(30)
+			item.setFont(1, font)
+
+			self.racerList.addTopLevelItem(item)
 
 	# Send a new floor message
 	def newFloor(self):
@@ -576,11 +628,7 @@ class IsaacScene(QGraphicsView):
 
 		curTime = "{0:02}:{1:02}:{2:02}:{3:03}".format(h,m,s,ms)
 
-		self.timerText.setPlainText(curTime)
-
-	# Process received messages
-	def gotMessage(self, msg):
-		print("Received: {0}".format(msg))
+		self.timerText.setText(curTime)
 
 
 # Main Window Class. Just used for containers
@@ -594,7 +642,7 @@ class MainWindow(QMainWindow):
 		self.setIconSize(QSize(16, 16))
 		self.setGeometry(100, 500, 800, 450)
 
-		self.setCentralWidget(LoginScreen())
+		self.setCentralWidget(IsaacScene(["Chronometrics", "Zamiell"]))
 
 	# Quit the application cleanly
 	def closeEvent(self, event):
