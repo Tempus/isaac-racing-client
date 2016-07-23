@@ -1,4 +1,4 @@
-import sys, os, random, json, re
+import sys, os, random, json, re, platform
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
@@ -22,6 +22,9 @@ from PyQt5.QtNetwork import *
 #		Admin Rights
 #		Updating with Zamiel's API changes
 #		Adding Race features to the racing screen
+#		Results Screen
+#		Adjust Isaac Race to better suit watching player
+#		Leaderboards
 #
 
 
@@ -212,49 +215,52 @@ class ServerConnection(QObject):
 	####################
 
 	def GameBoot(self, timestamp):
-		net.sendData('GameBoot {{"timestamp":{2}}}'.format(timestamp))
+		net.sendData('GameBoot {{"timestamp":{0}}}'.format(timestamp))
 
 	def RunStart(self, timestamp, seed):
-		net.sendData('RunStart {{"timestamp":{2}, "seed":"{0}"}}'.format(timestamp, seed))
+		net.sendData('RunStart {{"timestamp":{0}, "seed":"{1}"}}'.format(timestamp, seed))
+
+	def ResetsOver(self, timestamp):
+		net.sendData('ResetsOver {{"timestamp":{0}}}'.format(timestamp))
 
 	def StartCharacter(self, timestamp, character):
-		net.sendData('StartCharacter {{"timestamp":{2}, "character":"{0}"}}'.format(timestamp, character))
+		net.sendData('StartCharacter {{"timestamp":{0}, "character":"{1}"}}'.format(timestamp, character))
 
 	def FloorChange(self, timestamp, floor, variant):
-		net.sendData('FloorChange {{"timestamp":{2}, "floor":"{0}", "variant":"{0}"}}'.format(timestamp, floor, variant))
+		net.sendData('FloorChange {{"timestamp":{0}, "floor":"{1}", "variant":"{2}"}}'.format(timestamp, floor, variant))
 
 	def GetItem(self, timestamp, item, name):
-		net.sendData('GetItem {{"timestamp":{2}, "item":"{0}", "name":"{0}"}}'.format(timestamp, item, name))
+		net.sendData('GetItem {{"timestamp":{0}, "item":"{1}", "name":"{2}"}}'.format(timestamp, item, name))
 
 	def FloorBoss(self, timestamp, roomID, name):
-		net.sendData('FloorBoss {{"timestamp":{2}, "roomID":"{0}", "name":"{0}"}}'.format(timestamp, roomID, name))
+		net.sendData('FloorBoss {{"timestamp":{0}, "roomID":"{1}", "name":"{2}"}}'.format(timestamp, roomID, name))
 
 	def EnterRoom(self, timestamp, roomID, name):
-		net.sendData('EnterRoom {{"timestamp":{2}, "roomID":"{0}", "name":"{0}"}}'.format(timestamp, roomID, name))
+		net.sendData('EnterRoom {{"timestamp":{0}, "roomID":"{1}", "name":"{2}"}}'.format(timestamp, roomID, name))
 
 	def SpawnEntity(self, timestamp, type, variant):
-		net.sendData('SpawnEntity {{"timestamp":{2}, "type":"{0}", "variant":"{0}"}}'.format(timestamp, type, variant))
+		net.sendData('SpawnEntity {{"timestamp":{0}, "type":"{1}", "variant":"{2}"}}'.format(timestamp, type, variant))
 
 	def BossDeath(self, timestamp):
-		net.sendData('BossDeath {{"timestamp":{2}}}'.format(timestamp))
+		net.sendData('BossDeath {{"timestamp":{0}}}'.format(timestamp))
 
 	def RunComplete(self, timestamp, index, name):
-		net.sendData('RunComplete {{"timestamp":{2}, "index":"{0}", "name":"{0}"}}'.format(timestamp, index, name))
+		net.sendData('RunComplete {{"timestamp":{0}, "index":"{1}", "name":"{2}"}}'.format(timestamp, index, name))
 
 	def Ripperoni(self, timestamp, killed_by):
-		net.sendData('Ripperoni {{"timestamp":{2}, "killed_by":"{0}"}}'.format(timestamp, killed_by))
+		net.sendData('Ripperoni {{"timestamp":{0}, "killed_by":"{1}"}}'.format(timestamp, killed_by))
 
 	def BackToMenu(self, timestamp):
-		net.sendData('BackToMenu {{"timestamp":{2}}}'.format(timestamp))
+		net.sendData('BackToMenu {{"timestamp":{0}}}'.format(timestamp))
 
 	def Krampus(self, timestamp):
-		net.sendData('Krampus {{"timestamp":{2}}'.format(timestamp))
+		net.sendData('Krampus {{"timestamp":{0}}}'.format(timestamp))
 
 	def AngelDeal(self, timestamp):
-		net.sendData('AngelDeal {{"timestamp":{2}}}'.format(timestamp))
+		net.sendData('AngelDeal {{"timestamp":{0}}}'.format(timestamp))
 
 	def DevilDeal(self, timestamp):
-		net.sendData('DevilDeal {{"timestamp":{2}}}'.format(timestamp))
+		net.sendData('DevilDeal {{"timestamp":{0}}}'.format(timestamp))
 
 	####################
 	# Incoming Commands
@@ -602,11 +608,8 @@ class RaceTab(QWidget):
 class IsaacScene(QWidget):
 
 	# Start up the race
-	def __init__(self, racers, logParser = LogParser(), darkRoom = False):
+	def __init__(self, racers, logParser = None, darkRoom = False):
 		QWidget.__init__(self)
-
-		# Log Parser
-		self.logParser = logParser
 
 		# Timer
 		self.startTime = QDateTime.currentDateTime()
@@ -648,6 +651,16 @@ class IsaacScene(QWidget):
 		layout.addWidget(self.racerList)
 
 		self.setLayout(layout)
+
+		# Game State
+		self.state = {"bossMet": False, "bossCleared": False, "reseting": False, "roomCount": 0, "started": False}
+
+		# Log Parser
+		self.logParser = logParser
+		if not logParser:
+			self.logParser = LogParser()
+
+		self.setupRaceSignals()
 
 	# Setup the list of racers
 	def setupRacerList(self, racers):
@@ -737,31 +750,45 @@ class IsaacScene(QWidget):
 		server.GameBoot(self.getTime())
 
 	def RunStart(self, seed):
-		server.RunStart(self.getTime(), seed)
+		if not self.state["started"]:
+			server.RunStart(self.getTime(), seed)
+			self.state["started"] = True
 
 	def StartCharacter(self, character):
 		server.StartCharacter(self.getTime(), character)
 
 	def FloorChange(self, floor, variant):
 		server.FloorChange(self.getTime(), floor, variant)
+		self.state["bossMet"] = False
+		self.state["bossCleared"] = False
 
 	def GetItem(self, item, name):
 		server.GetItem(self.getTime(), item, name)
 
 	def FloorBoss(self, roomID, name):
-		server.FloorBoss(self.getTime(), roomID, name)
+		if self.state["bossMet"] == False:
+			self.state["bossMet"] = True
+			server.FloorBoss(self.getTime(), roomID, name)
 
 	def EnterRoom(self, roomID, name):
 		server.EnterRoom(self.getTime(), roomID, name)
+
+		self.state["roomCount"] = self.state["roomCount"] + 1
+
+		if self.state["roomCount"] == 5:
+			server.ResetsOver(self.getTime())
 
 	def SpawnEntity(self, type, variant):
 		server.SpawnEntity(self.getTime(), type, variant)
 
 	def BossDeath(self):
-		server.BossDeath(self.getTime())
+		if self.state["bossMet"] == True and self.state["bossCleared"] == False:
+			server.BossDeath(self.getTime())
+			self.state["bossCleared"] = True
 
 	def RunComplete(self, index, name):
-		server.RunComplete(self.getTime(), item, name)
+		if index > 10:
+			server.RunComplete(self.getTime(), index, name)
 
 	def Ripperoni(self, killed_by):
 		server.Ripperoni(self.getTime(), killed_by)
@@ -808,7 +835,6 @@ class LogParser(QObject):
 		self.currentLine = 0
 
 		self.openLog()
-		self.updateLog()
 
 	# Opens the log file
 	def openLog(self):
@@ -816,24 +842,24 @@ class LogParser(QObject):
 		# Get the system specific log.txt path
 		if self.logPath == "":
 			if platform.system() == "Darwin":
-				logPath = os.path.expanduser('~') + '/Library/Application Support/Binding of Isaac Afterbirth/log.txt'
+				self.logPath = os.path.expanduser('~') + '/Library/Application Support/Binding of Isaac Afterbirth/log.txt'
 
 			elif platform.system() == "Windows":
-				logPath = os.environ['USERPROFILE'] + '/Documents/My Games/Binding of Isaac Afterbirth/log.txt'
+				self.logPath = os.environ['USERPROFILE'] + '/Documents/My Games/Binding of Isaac Afterbirth/log.txt'
 
 			elif platform.system() == "Linux":
-				logPath = os.getenv('XDG_DATA_HOME', os.path.expanduser('~') + '/.local/share') + '/binding of isaac afterbirth/log.txt'
+				self.logPath = os.getenv('XDG_DATA_HOME', os.path.expanduser('~') + '/.local/share') + '/binding of isaac afterbirth/log.txt'
 
 	# Reloads the file data
 	def updateLog(self):
 
 		# if the log.txt exists...
-		if os.path.exists(logPath):
+		if os.path.exists(self.logPath):
 
 			# Check to see if the file has changed before opening it
-			size = os.path.getsize(logPath)
+			size = os.path.getsize(self.logPath)
 			if size != self.logSize:
-				self.log = open(logPath, 'rb').read()
+				self.log = open(self.logPath, 'r').read()
 				self.logSize = size
 
 				# Since we're updating it, we need to parse it right away
@@ -853,72 +879,72 @@ class LogParser(QObject):
 		for line in lines[self.currentLine:]:
 
 			# GameBoot
-			if line contains "Binding of Isaac: Afterbirth":
-				self.GameBootw.emit()
+			if "Binding of Isaac: Afterbirth" in line:
+				self.GameBoot.emit()
 
 			# RunStart
-			elif line contains "RNG Start Seed":
+			elif "RNG Start Seed" in line:
 				seed = line[16:25]
 				self.RunStart.emit(seed)
 
-			# CharacterStarted
-			elif line contains "Initialized player":
+			# StartCharacter
+			elif "Initialized player" in line:
 				character = int(line[-1:])
-				self.CharacterStarted.emit(character)
+				self.StartCharacter.emit(character)
 
 			# FloorChange
-			elif line contains "Level::Init":
+			elif "Level::Init" in line:
 				t = re.search("Level::Init m_Stage (\d+), m_StageType (\d+)", line)
-				self.FloorChange.emit(int(t.group(0)), int(t.group(1)))
+				self.FloorChange.emit(int(t.group(1)), int(t.group(2)))
 
 			# GetItem
-			elif line contains "Adding collectible":
+			elif "Adding collectible" in line:
 				t = re.search("Adding collectible (\d+) \((.*)\)", line)
-				self.GetItem.emit(int(t.group(0)), t.group(1))
+				self.GetItem.emit(int(t.group(1)), t.group(2))
 
 			# Krampus
-			elif line contains "(Krampus":
+			elif "(Krampus" in line:
 				self.Krampus.emit()
 
 			# AngelDeal
-			elif line contains "(Devil":
+			elif "(Devil" in line:
 				self.AngelDeal.emit()
 
 			# DevilDeal
-			elif line contains "(Angel":
+			elif "(Angel" in line:
 				self.DevilDeal.emit()
 
 			# FloorBoss
-			elif line contains "Room 5.":
+			elif "Room 5." in line:
 				t = re.search("Room 5.(\d+)\((.*)\)", line)
-				self.FloorBoss.emit(int(t.group(0)), t.group(1))
+				self.FloorBoss.emit(int(t.group(1)), t.group(2))
 
 			# NewRoom
-			elif line contains "Room ":
+			elif "Room " in line:
 				t = re.search("Room ([0-9.]+)\((.*)\)", line)
-				self.EnterRoom.emit(float(t.group(0)), t.group(1))
+				self.EnterRoom.emit(float(t.group(1)), t.group(2))
 
 			# SpawnEntity
-			elif line contains "Spawn Entity":
+			elif "Spawn Entity" in line:
 				t = re.search("Spawn Entity with Type\((\d+)\), Variant\((\d+)\).*", line)
-				self.SpawnEntity.emit(int(t.group(0)), int(t.group(1)))
+				self.SpawnEntity.emit(int(t.group(1)), int(t.group(2)))
 
 			# BossDeath
-			elif line contains "TriggerBossDeath: 0 bosses remaining.":
+			elif "TriggerBossDeath: 0 bosses remaining." in line:
 				self.BossDeath.emit()
 
 			# RunComplete
-			elif line contains "playing cutscene":
+			elif "playing cutscene" in line:
 				t = re.search("playing cutscene (\d+) \((.*)\).", line)
-				self.RunComplete.emit(int(t.group(0)), t.group(1))
+				self.RunComplete.emit(int(t.group(1)), t.group(2))
 
 			# Ripperoni
-			elif line contains "Game Over":
+			elif "Game Over" in line:
 				t = re.search("Game Over. Killed by \(([0-9.]+)\)", line)
-				self.Ripperoni.emit(float(t.group(0)))
+				self.Ripperoni.emit(float(t.group(1)))
 
 			# BackToMenu
-			elif line contains "Different number of achievements":
+			elif "Different number of achievements" in line:
 				self.BackToMenu.emit()
 
 		# update line count
