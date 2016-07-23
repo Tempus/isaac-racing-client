@@ -1,9 +1,29 @@
-import sys, os, random, json
+import sys, os, random, json, re
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtWebSockets import *
 from PyQt5.QtNetwork import *
+
+#########################################################
+#
+#	Isaac Racing Client by Colin Noga
+#	 All Rights Reserved
+#
+#
+#	TODO:
+#
+#		Receiving Race Updates
+#		Integration with Diversity, Jud6s, Instant Start
+#		Ruleset Selection
+#		Ruleset Validation
+#		Countdown to the start
+#		Banning, Squelching
+#		Admin Rights
+#		Updating with Zamiel's API changes
+#		Adding Race features to the racing screen
+#
+
 
 # Contains all the network connection data
 class Connection():
@@ -120,6 +140,7 @@ class Connection():
 		return
 
 
+# Handles the server and client communications and API
 class ServerConnection(QObject):
 
 	# Singals for all the messages we expect to receive
@@ -187,6 +208,55 @@ class ServerConnection(QObject):
 		net.sendData('adminSquelch {{"name":"{0}"}}'.format(username))
 
 	####################
+	# Outgoing Commands (Race Log Derived)
+	####################
+
+	def GameBoot(self, timestamp):
+		net.sendData('GameBoot {{"timestamp":{2}}}'.format(timestamp))
+
+	def RunStart(self, timestamp, seed):
+		net.sendData('RunStart {{"timestamp":{2}, "seed":"{0}"}}'.format(timestamp, seed))
+
+	def StartCharacter(self, timestamp, character):
+		net.sendData('StartCharacter {{"timestamp":{2}, "character":"{0}"}}'.format(timestamp, character))
+
+	def FloorChange(self, timestamp, floor, variant):
+		net.sendData('FloorChange {{"timestamp":{2}, "floor":"{0}", "variant":"{0}"}}'.format(timestamp, floor, variant))
+
+	def GetItem(self, timestamp, item, name):
+		net.sendData('GetItem {{"timestamp":{2}, "item":"{0}", "name":"{0}"}}'.format(timestamp, item, name))
+
+	def FloorBoss(self, timestamp, roomID, name):
+		net.sendData('FloorBoss {{"timestamp":{2}, "roomID":"{0}", "name":"{0}"}}'.format(timestamp, roomID, name))
+
+	def EnterRoom(self, timestamp, roomID, name):
+		net.sendData('EnterRoom {{"timestamp":{2}, "roomID":"{0}", "name":"{0}"}}'.format(timestamp, roomID, name))
+
+	def SpawnEntity(self, timestamp, type, variant):
+		net.sendData('SpawnEntity {{"timestamp":{2}, "type":"{0}", "variant":"{0}"}}'.format(timestamp, type, variant))
+
+	def BossDeath(self, timestamp):
+		net.sendData('BossDeath {{"timestamp":{2}}}'.format(timestamp))
+
+	def RunComplete(self, timestamp, index, name):
+		net.sendData('RunComplete {{"timestamp":{2}, "index":"{0}", "name":"{0}"}}'.format(timestamp, index, name))
+
+	def Ripperoni(self, timestamp, killed_by):
+		net.sendData('Ripperoni {{"timestamp":{2}, "killed_by":"{0}"}}'.format(timestamp, killed_by))
+
+	def BackToMenu(self, timestamp):
+		net.sendData('BackToMenu {{"timestamp":{2}}}'.format(timestamp))
+
+	def Krampus(self, timestamp):
+		net.sendData('Krampus {{"timestamp":{2}}'.format(timestamp))
+
+	def AngelDeal(self, timestamp):
+		net.sendData('AngelDeal {{"timestamp":{2}}}'.format(timestamp))
+
+	def DevilDeal(self, timestamp):
+		net.sendData('DevilDeal {{"timestamp":{2}}}'.format(timestamp))
+
+	####################
 	# Incoming Commands
 	####################
 
@@ -223,7 +293,7 @@ class ServerConnection(QObject):
 				print ("Unknown Command: '{0}'".format(message))
 
 		except:
-		 	print ("Bad Command format: '{0}'".format(message))
+			print ("Bad Command format: '{0}'".format(message))
 
 
 # Represents the Screen players login
@@ -531,8 +601,12 @@ class RaceTab(QWidget):
 # Represents the Isaac Game
 class IsaacScene(QWidget):
 
-	def __init__(self, racers, darkRoom = False):
+	# Start up the race
+	def __init__(self, racers, logParser = LogParser(), darkRoom = False):
 		QWidget.__init__(self)
+
+		# Log Parser
+		self.logParser = logParser
 
 		# Timer
 		self.startTime = QDateTime.currentDateTime()
@@ -617,9 +691,14 @@ class IsaacScene(QWidget):
 
 		# net.sendData('"{0}", "{1}", "{2}"'.format(self.startTime.msecsTo(QDateTime.currentDateTime()), self.floors[self.floorIndex], random.randint(0,300)))
 
+	# Gets the elapsed time in msecs
+	def getTime(self):
+		return self.startTime.msecsTo(QDateTime.currentDateTime())
+
 	# Timer Update
 	def timerEvent(self, event):
-		time = self.startTime.msecsTo(QDateTime.currentDateTime())
+		# Handle the time display
+		time = self.getTime()
 
 		h = int(time / 1000 / 60 / 60)
 		m = int((time / 1000 / 60) - (h * 60))
@@ -629,6 +708,221 @@ class IsaacScene(QWidget):
 		curTime = "{0:02}:{1:02}:{2:02}:{3:03}".format(h,m,s,ms)
 
 		self.timerText.setText(curTime)
+
+		# Handle the log parsing
+		self.logParser.updateLog()
+
+	##################
+	# Here be Signals
+	##################
+
+	def setupRaceSignals(self):
+		self.logParser.GameBoot.connect(self.GameBoot)
+		self.logParser.RunStart.connect(self.RunStart)
+		self.logParser.StartCharacter.connect(self.StartCharacter)
+		self.logParser.FloorChange.connect(self.FloorChange)
+		self.logParser.GetItem.connect(self.GetItem)
+		self.logParser.FloorBoss.connect(self.FloorBoss)
+		self.logParser.EnterRoom.connect(self.EnterRoom)
+		self.logParser.SpawnEntity.connect(self.SpawnEntity)
+		self.logParser.BossDeath.connect(self.BossDeath)
+		self.logParser.RunComplete.connect(self.RunComplete)
+		self.logParser.Ripperoni.connect(self.Ripperoni)
+		self.logParser.BackToMenu.connect(self.BackToMenu)
+		self.logParser.Krampus.connect(self.Krampus)
+		self.logParser.AngelDeal.connect(self.AngelDeal)
+		self.logParser.DevilDeal.connect(self.DevilDeal)
+
+	def GameBoot(self):
+		server.GameBoot(self.getTime())
+
+	def RunStart(self, seed):
+		server.RunStart(self.getTime(), seed)
+
+	def StartCharacter(self, character):
+		server.StartCharacter(self.getTime(), character)
+
+	def FloorChange(self, floor, variant):
+		server.FloorChange(self.getTime(), floor, variant)
+
+	def GetItem(self, item, name):
+		server.GetItem(self.getTime(), item, name)
+
+	def FloorBoss(self, roomID, name):
+		server.FloorBoss(self.getTime(), roomID, name)
+
+	def EnterRoom(self, roomID, name):
+		server.EnterRoom(self.getTime(), roomID, name)
+
+	def SpawnEntity(self, type, variant):
+		server.SpawnEntity(self.getTime(), type, variant)
+
+	def BossDeath(self):
+		server.BossDeath(self.getTime())
+
+	def RunComplete(self, index, name):
+		server.RunComplete(self.getTime(), item, name)
+
+	def Ripperoni(self, killed_by):
+		server.Ripperoni(self.getTime(), killed_by)
+
+	def BackToMenu(self):
+		server.BackToMenu(self.getTime())
+
+	def Krampus(self):
+		server.Krampus(self.getTime())
+
+	def AngelDeal(self):
+		server.AngelDeal(self.getTime())
+
+	def DevilDeal(self):
+		server.DevilDeal(self.getTime())
+
+
+# Grabs the log.txt, and allows it to be parsed.
+class LogParser(QObject):
+
+	# Singals for all the game events
+	GameBoot 		= pyqtSignal() 				# 
+	RunStart		= pyqtSignal(str)			# (seed)
+	StartCharacter	= pyqtSignal(int)			# (character index)
+	FloorChange		= pyqtSignal(int, int)		# (floor, variant)
+	GetItem			= pyqtSignal(int, str)		# (item, name)
+	FloorBoss		= pyqtSignal(int, str)		# (roomId, name)
+	EnterRoom		= pyqtSignal(float, str)	# (roomId, name)
+	SpawnEntity		= pyqtSignal(int, int)		# (type, variant)
+	BossDeath		= pyqtSignal()				# 
+	RunComplete		= pyqtSignal(int, str)		# (index, name)
+	Ripperoni		= pyqtSignal(float)			# (Entity who killed you)
+	BackToMenu		= pyqtSignal()				# 
+	Krampus			= pyqtSignal()				# 
+	AngelDeal		= pyqtSignal()				# 
+	DevilDeal		= pyqtSignal()				# 
+	
+	def __init__(self):
+		QObject.__init__(self)
+
+		self.logPath = ""
+		self.log = None
+		self.logSize = 0
+		self.currentLine = 0
+
+		self.openLog()
+		self.updateLog()
+
+	# Opens the log file
+	def openLog(self):
+
+		# Get the system specific log.txt path
+		if self.logPath == "":
+			if platform.system() == "Darwin":
+				logPath = os.path.expanduser('~') + '/Library/Application Support/Binding of Isaac Afterbirth/log.txt'
+
+			elif platform.system() == "Windows":
+				logPath = os.environ['USERPROFILE'] + '/Documents/My Games/Binding of Isaac Afterbirth/log.txt'
+
+			elif platform.system() == "Linux":
+				logPath = os.getenv('XDG_DATA_HOME', os.path.expanduser('~') + '/.local/share') + '/binding of isaac afterbirth/log.txt'
+
+	# Reloads the file data
+	def updateLog(self):
+
+		# if the log.txt exists...
+		if os.path.exists(logPath):
+
+			# Check to see if the file has changed before opening it
+			size = os.path.getsize(logPath)
+			if size != self.logSize:
+				self.log = open(logPath, 'rb').read()
+				self.logSize = size
+
+				# Since we're updating it, we need to parse it right away
+				self.parseLog()
+
+		# No log found, throw an error
+		else:
+			QMessageBox.warning(mainWindow, "Error", "Isaac data and saves not found. We are unable to start your race without these files. If your Isaac is properly installed and you have started a run at least once but still get this error, report this to the administration.")
+
+	# Begins parsing the logfile
+	def parseLog(self):
+
+		# Split everything into lines
+		lines = self.log.splitlines()
+
+		# Iterate over the new lines, parse them, and then send the appropriate signal
+		for line in lines[self.currentLine:]:
+
+			# GameBoot
+			if line contains "Binding of Isaac: Afterbirth":
+				self.GameBootw.emit()
+
+			# RunStart
+			elif line contains "RNG Start Seed":
+				seed = line[16:25]
+				self.RunStart.emit(seed)
+
+			# CharacterStarted
+			elif line contains "Initialized player":
+				character = int(line[-1:])
+				self.CharacterStarted.emit(character)
+
+			# FloorChange
+			elif line contains "Level::Init":
+				t = re.search("Level::Init m_Stage (\d+), m_StageType (\d+)", line)
+				self.FloorChange.emit(int(t.group(0)), int(t.group(1)))
+
+			# GetItem
+			elif line contains "Adding collectible":
+				t = re.search("Adding collectible (\d+) \((.*)\)", line)
+				self.GetItem.emit(int(t.group(0)), t.group(1))
+
+			# Krampus
+			elif line contains "(Krampus":
+				self.Krampus.emit()
+
+			# AngelDeal
+			elif line contains "(Devil":
+				self.AngelDeal.emit()
+
+			# DevilDeal
+			elif line contains "(Angel":
+				self.DevilDeal.emit()
+
+			# FloorBoss
+			elif line contains "Room 5.":
+				t = re.search("Room 5.(\d+)\((.*)\)", line)
+				self.FloorBoss.emit(int(t.group(0)), t.group(1))
+
+			# NewRoom
+			elif line contains "Room ":
+				t = re.search("Room ([0-9.]+)\((.*)\)", line)
+				self.EnterRoom.emit(float(t.group(0)), t.group(1))
+
+			# SpawnEntity
+			elif line contains "Spawn Entity":
+				t = re.search("Spawn Entity with Type\((\d+)\), Variant\((\d+)\).*", line)
+				self.SpawnEntity.emit(int(t.group(0)), int(t.group(1)))
+
+			# BossDeath
+			elif line contains "TriggerBossDeath: 0 bosses remaining.":
+				self.BossDeath.emit()
+
+			# RunComplete
+			elif line contains "playing cutscene":
+				t = re.search("playing cutscene (\d+) \((.*)\).", line)
+				self.RunComplete.emit(int(t.group(0)), t.group(1))
+
+			# Ripperoni
+			elif line contains "Game Over":
+				t = re.search("Game Over. Killed by \(([0-9.]+)\)", line)
+				self.Ripperoni.emit(float(t.group(0)))
+
+			# BackToMenu
+			elif line contains "Different number of achievements":
+				self.BackToMenu.emit()
+
+		# update line count
+		self.currentLine = len(lines)
 
 
 # Main Window Class. Just used for containers
